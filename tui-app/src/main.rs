@@ -1,19 +1,18 @@
-use std::{default, error::Error, io, os::unix::fs::chroot, time};
+use std::{error::Error, io, time};
 
 use chrono::{Datelike, Local};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
-    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Style, Stylize},
-    symbols::border,
-    text::{Line, Text},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Alignment, Constraint, Layout, Rect},
     widgets::{
         Bar, BarChart, BarGroup, Block, Borders, List, ListItem, ListState, Paragraph, Widget,
     },
 };
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
+
+mod db;
 
 pub struct App {
     exit: bool,
@@ -62,21 +61,21 @@ impl AppListTime {
 
         match self {
             AppListTime::Today => Some((
-                start_of_today.timestamp_millis() as u64,
-                end_of_today.timestamp_millis() as u64,
+                start_of_today.and_utc().timestamp_millis() as u64,
+                end_of_today.and_utc().timestamp_millis() as u64,
             )),
             AppListTime::ThisWeek => {
                 let one_week_ago = end_of_today - chrono::Duration::weeks(1);
                 Some((
-                    one_week_ago.timestamp_millis() as u64,
-                    end_of_today.timestamp_millis() as u64,
+                    one_week_ago.and_utc().timestamp_millis() as u64,
+                    end_of_today.and_utc().timestamp_millis() as u64,
                 ))
             }
             AppListTime::ThisMonth => {
                 let one_month_ago = end_of_today - chrono::Duration::weeks(4);
                 Some((
-                    one_month_ago.timestamp_millis() as u64,
-                    end_of_today.timestamp_millis() as u64,
+                    one_month_ago.and_utc().timestamp_millis() as u64,
+                    end_of_today.and_utc().timestamp_millis() as u64,
                 ))
             }
             AppListTime::AllTime => None,
@@ -111,7 +110,7 @@ impl Default for App {
     fn default() -> Self {
         let conn = Connection::open("app_usage.db").unwrap();
         let time_to_show = AppListTime::default();
-        let apps = list_apps(&conn, time_to_show.timestamps()).unwrap();
+        let apps = db::list_apps(&conn, time_to_show.timestamps()).unwrap();
 
         Self {
             exit: false,
@@ -136,100 +135,14 @@ impl App {
     }
 
     fn refetch_applist(&mut self) {
-        let now = Local::now();
-        let start_of_today = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let end_of_today = start_of_today + chrono::Duration::days(1);
-
         self.app_list.items =
-            list_apps(&self.connection, self.app_list.time_to_show.timestamps()).unwrap();
+            db::list_apps(&self.connection, self.app_list.time_to_show.timestamps()).unwrap();
     }
 
     fn draw(&mut self, frame: &mut Frame) {
         self.render(frame.area(), frame.buffer_mut());
-        //     let layout = Layout::vertical([Constraint::Length(9), Constraint::Min(3)]);
-        //     let [bar_area, rest] = layout.areas(frame.area());
-        //
-        // let now = Local::now();
-        // let start_of_today = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        //
-        // let data = (0..7)
-        //     .map(|i| {
-        //         let day = start_of_today - chrono::Duration::days(i);
-        //         get_data_for_time(
-        //             &self.connection,
-        //             (
-        //                 day.timestamp_millis() as u64,
-        //                 (day + chrono::Duration::days(1)).timestamp_millis() as u64,
-        //             ),
-        //         )
-        //         .unwrap()
-        //     })
-        //     .collect::<Vec<_>>();
-        //
-        // let bars = data
-        //     .iter()
-        //     .enumerate()
-        //     .map(|(i, v)| {
-        //         let day = start_of_today - chrono::Duration::days(i as i64);
-        //         Bar::default()
-        //             .value(*v)
-        //             .label(day.weekday().to_string().into())
-        //     })
-        //     .rev()
-        //     .collect::<Vec<_>>();
-        //
-        //     let barchart = BarChart::default()
-        //         .block(Block::bordered().title("Past Week"))
-        //         .data(BarGroup::default().bars(&bars))
-        //         .bar_width(4)
-        //         .bar_gap(2);
-        //
-        //     let legend_items: Vec<ListItem> = data
-        //         .iter()
-        //         .enumerate()
-        //         .map(|(i, v)| {
-        //             ListItem::new(format!(
-        //                 "{}: {}",
-        //                 (start_of_today - chrono::Duration::days(i as i64)).weekday(),
-        //                 humantime::format_duration(
-        //                     chrono::Duration::seconds(*v as i64 / 1000)
-        //                         .to_std()
-        //                         .unwrap()
-        //                 )
-        //             ))
-        //         })
-        //         .rev()
-        //         .collect();
-        //
-        //     let legend = List::new(legend_items).block(Block::default().borders(Borders::ALL));
-        //
-        //     let bar_layout = Layout::default()
-        //         .direction(Direction::Horizontal)
-        //         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        //         .split(bar_area);
-        //
-        //     frame.render_widget(barchart, bar_layout[0]);
-        //     frame.render_widget(legend, bar_layout[1]);
-        //
-        //     let app_list_items = self.app_list.items.clone();
-        //
-        //     let app_list = List::new(app_list_items).block(Block::default().borders(Borders::ALL));
-        //
-        //     let rest_layout = Layout::default()
-        //         .direction(Direction::Horizontal)
-        //         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        //         .split(rest);
-        //
-        //     StatefulWidget::render(
-        //         &app_list,
-        //         rest_layout[0],
-        //         frame.buffer_mut(),
-        //         &mut self.app_list.state,
-        //     );
-        //     frame.render_widget(app_list, rest_layout[0]);
-        // }
-        //
     }
+
     fn handle_events(&mut self) -> io::Result<()> {
         match event::read()? {
             // it's important to check that the event is a key press event as
@@ -271,11 +184,13 @@ impl App {
                 let day = start_of_today - chrono::Duration::days(i);
                 (
                     day.weekday().to_string(),
-                    get_data_for_time(
+                    db::get_data_for_time(
                         &self.connection,
                         (
-                            day.timestamp_millis() as u64,
-                            (day + chrono::Duration::days(1)).timestamp_millis() as u64,
+                            day.and_utc().timestamp_millis() as u64,
+                            (day + chrono::Duration::days(1))
+                                .and_utc()
+                                .timestamp_millis() as u64,
                         ),
                     )
                     .unwrap(),
@@ -318,8 +233,6 @@ impl App {
 
     // TODO render the time for each item to the right!!
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
-        let now = Local::now();
-
         let list = List::new(
             self.app_list
                 .items
@@ -357,29 +270,29 @@ impl App {
         let start_of_today = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let end_of_today = start_of_today + chrono::Duration::days(1);
 
-        let usage_today = get_data_for_app_and_time(
+        let usage_today = db::get_data_for_app_and_time(
             &self.connection,
             selected_app.0.clone(),
             (
-                start_of_today.timestamp_millis() as u64,
-                end_of_today.timestamp_millis() as u64,
+                start_of_today.and_utc().timestamp_millis() as u64,
+                end_of_today.and_utc().timestamp_millis() as u64,
             ),
         )
         .unwrap();
 
         let one_week_ago = end_of_today - chrono::Duration::weeks(1);
 
-        let usage_this_wek = get_data_for_app_and_time(
+        let usage_this_wek = db::get_data_for_app_and_time(
             &self.connection,
             selected_app.0.clone(),
             (
-                one_week_ago.timestamp_millis() as u64,
-                end_of_today.timestamp_millis() as u64,
+                one_week_ago.and_utc().timestamp_millis() as u64,
+                end_of_today.and_utc().timestamp_millis() as u64,
             ),
         )
         .unwrap();
 
-        let usage_all_time = get_total_app_usage(&self.connection, selected_app.0).unwrap();
+        let usage_all_time = db::get_total_app_usage(&self.connection, selected_app.0).unwrap();
 
         Paragraph::new(format!(
             "Today: {}\nThis week: {}\nAll time: {}",
@@ -411,80 +324,4 @@ impl Widget for &mut App {
         self.render_list(list_area, buf);
         self.render_item(item_area, buf);
     }
-}
-
-fn list_apps(
-    conn: &Connection,
-    time_range: Option<(u64, u64)>,
-) -> Result<Vec<(String, u64)>, rusqlite::Error> {
-    if let Some((start_time, end_time)) = time_range {
-        let mut stmt = conn.prepare(
-            "select app_name, sum(duration) as total_duration
-         from app_usage
-         where start_time >= ? and start_time < ?
-         group by app_name
-         order by total_duration desc",
-        )?;
-        stmt.query_map([start_time, end_time], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
-        })?
-        .collect()
-    } else {
-        let mut stmt = conn.prepare(
-            "select app_name, sum(duration)
-         from app_usage
-         group by app_name
-         order by sum(duration) desc",
-        )?;
-        stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
-        })?
-        .collect()
-    }
-}
-
-fn get_data_for_app_and_time(
-    conn: &Connection,
-    app_name: String,
-    (start_time, end_time): (u64, u64),
-) -> Result<u64, rusqlite::Error> {
-    conn.query_row(
-        "select sum(duration)
-            from app_usage
-            where app_name == ? and start_time >= ? and start_time < ?",
-        params![app_name, start_time, end_time],
-        |row| {
-            // println!("row!!: {:?}", row.get::<_, u64>(0).or_else(|_| Ok(0)));
-            Ok(row.get::<_, u64>(0).unwrap_or(0))
-        },
-    )
-}
-
-fn get_total_app_usage(conn: &Connection, app_name: String) -> Result<u64, rusqlite::Error> {
-    conn.query_row(
-        "select sum(duration)
-            from app_usage
-            where app_name == ?",
-        [app_name],
-        |row| {
-            // println!("row!!: {:?}", row.get::<_, u64>(0).or_else(|_| Ok(0)));
-            Ok(row.get::<_, u64>(0).unwrap_or(0))
-        },
-    )
-}
-
-fn get_data_for_time(
-    conn: &Connection,
-    (start_time, end_time): (u64, u64),
-) -> Result<u64, rusqlite::Error> {
-    conn.query_row(
-        "select sum(duration)
-            from app_usage
-            where start_time >= ? and start_time < ?",
-        [start_time, end_time],
-        |row| {
-            // println!("row!!: {:?}", row.get::<_, u64>(0).or_else(|_| Ok(0)));
-            Ok(row.get::<_, u64>(0).unwrap_or(0))
-        },
-    )
 }
