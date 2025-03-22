@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 pub fn list_apps(
     conn: &Connection,
@@ -12,10 +12,12 @@ pub fn list_apps(
          group by app_name
          order by total_duration desc",
         )?;
-        stmt.query_map([start_time, end_time], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
-        })?
-        .collect()
+        let x = stmt
+            .query_map([start_time, end_time], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })?
+            .collect();
+        x
     } else {
         let mut stmt = conn.prepare(
             "select app_name, sum(duration)
@@ -23,10 +25,12 @@ pub fn list_apps(
          group by app_name
          order by sum(duration) desc",
         )?;
-        stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
-        })?
-        .collect()
+        let x = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })?
+            .collect();
+        x
     }
 }
 
