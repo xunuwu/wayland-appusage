@@ -1,0 +1,11 @@
+[Install]
+WantedBy=sway-session.target
+
+[Service]
+ExecStart=/usr/local/bin/appusage-daemon
+Restart=on-failure
+RestartSec=5s
+Type=simple
+
+[Unit]
+Description=Appusage daemon
