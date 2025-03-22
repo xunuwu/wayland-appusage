@@ -160,11 +160,11 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
             Event::State { state } => {
                 let new_state = state
                     .chunks_exact(4)
-                    .map(|chunk| unsafe {
-                        // TODO do this in a way that prevents invalid enums
-                        std::mem::transmute::<_, zwlr_foreign_toplevel_handle_v1::State>(
-                            u32::from_ne_bytes(chunk.try_into().unwrap()),
-                        )
+                    .map(|chunk| {
+                        zwlr_foreign_toplevel_handle_v1::State::try_from(u32::from_ne_bytes(
+                            chunk.try_into().unwrap(),
+                        ))
+                        .unwrap()
                     })
                     .collect::<Vec<_>>();
 
