@@ -5,7 +5,9 @@ use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Style, Stylize},
+    text::Text,
     widgets::{
         Bar, BarChart, BarGroup, Block, Borders, List, ListItem, ListState, Paragraph, Widget,
     },
@@ -100,15 +102,19 @@ impl std::fmt::Display for AppListTime {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = ratatui::init();
-    let app_result = App::default().run(&mut terminal);
+    let app_result = App::new().run(&mut terminal);
     ratatui::restore();
 
     Ok(app_result?)
 }
 
-impl Default for App {
-    fn default() -> Self {
-        let conn = Connection::open("app_usage.db").unwrap();
+impl App {
+    fn new() -> Self {
+        let db_path = xdg::BaseDirectories::with_prefix("wayland-appusage")
+            .unwrap()
+            .place_data_file("app_usage.db")
+            .unwrap();
+        let conn = Connection::open(db_path).unwrap();
         let time_to_show = AppListTime::default();
         let apps = db::list_apps(&conn, time_to_show.timestamps()).unwrap();
 
@@ -200,17 +206,34 @@ impl App {
     }
 
     fn render_bars(&mut self, week_data: Vec<(String, u64)>, area: Rect, buf: &mut Buffer) {
+        let block = Block::bordered().title("Past Week");
+
+        let width = block.inner(area).width;
+        let gap_size = 2;
+        let item_count = 7;
+        let total_reserved = gap_size * (item_count - 1) + 2;
+        let space_per_item = (width - total_reserved) / item_count;
+
         let bars: Vec<_> = week_data
             .iter()
-            .map(|(day, value)| Bar::default().value(*value).label(day.clone().into()))
+            .map(|(day, value)| {
+                Bar::default()
+                    .value(*value)
+                    .label(day.clone().into())
+                    .text_value(
+                        humantime::format_duration(time::Duration::from_secs(*value / 1000))
+                            .to_string(),
+                    )
+            })
             .rev()
             .collect();
 
         BarChart::default()
-            .block(Block::bordered().title("Past Week"))
+            .block(block)
             .data(BarGroup::default().bars(&bars))
-            .bar_width(4)
-            .bar_gap(2)
+            .bar_width(space_per_item)
+            .bar_gap(gap_size)
+            .direction(Direction::Vertical)
             .render(area, buf);
     }
 
@@ -231,25 +254,42 @@ impl App {
             .render(area, buf);
     }
 
-    // TODO render the time for each item to the right!!
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
-        let list = List::new(
-            self.app_list
-                .items
-                .iter()
-                .map(|x| x.0.clone())
-                .collect::<Vec<_>>(),
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title_alignment(Alignment::Center)
-                .title(format!("Top {}", self.app_list.time_to_show)),
-        )
-        .highlight_symbol(">")
-        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always);
+        let name_items = self
+            .app_list
+            .items
+            .iter()
+            .map(|x| x.0.clone())
+            .collect::<Vec<_>>();
 
-        ratatui::widgets::StatefulWidget::render(list, area, buf, &mut self.app_list.state);
+        let time_items = self
+            .app_list
+            .items
+            .iter()
+            .map(|x| {
+                ListItem::new(
+                    Text::from(
+                        humantime::format_duration(time::Duration::from_secs(x.1 / 1000))
+                            .to_string(),
+                    )
+                    .right_aligned(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let [name_list, time_list] = [List::new(name_items), List::new(time_items)].map(|x| {
+            x.block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title_alignment(Alignment::Center)
+                    .title(format!("Top {}", self.app_list.time_to_show)),
+            )
+            .highlight_symbol(">")
+            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+        });
+
+        ratatui::widgets::StatefulWidget::render(time_list, area, buf, &mut self.app_list.state);
+        ratatui::widgets::StatefulWidget::render(name_list, area, buf, &mut self.app_list.state);
     }
 
     fn render_item(&mut self, area: Rect, buf: &mut Buffer) {
@@ -309,19 +349,20 @@ impl App {
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let [top_area, bottom_area] =
-            Layout::vertical([Constraint::Length(9), Constraint::Min(3)]).areas(area);
-        let [chart_area, legend_area] =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .areas(top_area);
-        let [list_area, item_area] =
+            Layout::vertical([Constraint::Max(20), Constraint::Fill(1)]).areas(area);
+        let [left_area, right_area] =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .areas(bottom_area);
 
-        let week_data = self.get_week_data();
-        self.render_bars(week_data.clone(), chart_area, buf);
-        self.render_legend(week_data, legend_area, buf);
+        // let [chart_area, list_area] =
+        //     Layout::vertical([Constraint::Min(20), Constraint::Percentage(100)]).areas(left_area);
 
-        self.render_list(list_area, buf);
-        self.render_item(item_area, buf);
+        let week_data = self.get_week_data();
+        self.render_bars(week_data.clone(), top_area, buf);
+        // self.render_bars(week_data.clone(), chart_area, buf);
+        // self.render_legend(week_data, legend_area, buf);
+
+        self.render_list(left_area, buf);
+        self.render_item(right_area, buf);
     }
 }

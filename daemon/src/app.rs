@@ -6,9 +6,8 @@ use std::{
 use rusqlite::params;
 use tracing::{info, trace, warn};
 use wayland_client::{
-    event_created_child,
+    Dispatch, event_created_child,
     protocol::{wl_registry, wl_seat::WlSeat},
-    Dispatch,
 };
 use wayland_protocols::ext::idle_notify::v1::client::{
     ext_idle_notification_v1::ExtIdleNotificationV1, ext_idle_notifier_v1::ExtIdleNotifierV1,
@@ -55,7 +54,9 @@ fn insert_usage(
 
 impl AppState {
     pub fn new() -> anyhow::Result<AppState> {
-        let database_connection = rusqlite::Connection::open("app_usage.db")?;
+        let db_path = xdg::BaseDirectories::with_prefix("wayland-appusage")?
+            .place_data_file("app_usage.db")?;
+        let database_connection = rusqlite::Connection::open(db_path)?;
 
         database_connection.execute("PRAGMA foreign_keys = ON", ())?;
 

@@ -1,5 +1,5 @@
 [package]
-name = "appusage-tui"
+name = "appusage"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,3 +8,4 @@ chrono = "0.4.40"
 humantime = "2.2.0"
 ratatui = { version = "0.29.0", features = ["all-widgets"] }
 rusqlite = { version = "0.34.0", features = ["bundled"] }
+xdg = "2.5.2"

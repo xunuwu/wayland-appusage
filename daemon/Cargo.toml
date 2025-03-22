@@ -1,7 +1,7 @@
 [package]
-name = "appusage"
+name = "appusage-daemon"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 anyhow = "1.0.97"
@@ -11,3 +11,4 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
 wayland-client = "0.31.8"
 wayland-protocols = { version = "0.32.6", features = ["client", "staging"] }
 wayland-protocols-wlr = { version = "0.3.6", features = ["client"] }
+xdg = "2.5.2"
