@@ -4,7 +4,7 @@ use std::{
 };
 
 use rusqlite::params;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 use wayland_client::{
     Dispatch, event_created_child,
     protocol::{wl_registry, wl_seat::WlSeat},
@@ -154,7 +154,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
 
                 // became inactive
                 if was_active && !is_active {
-                    info!("became inactive:{:?}", item.app_id);
+                    debug!("became inactive:{:?}", item.app_id);
                     // log time since became active
                     // remove activate time from toplevel info
                     if let Some(focused_since) = item.focused_since {
@@ -176,8 +176,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
 
                 // became active
                 if is_active && !was_active {
-                    trace!("became active: {:?}", item);
-                    info!("became active: {:?}", item.app_id);
+                    debug!("became active: {:?}", item.app_id);
                     item.focused_since = Some(Instant::now());
                 }
 
@@ -189,7 +188,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
                 });
 
                 if is_active {
-                    info!("active client destroyed: {:?}", item);
+                    debug!("active client destroyed: {:?}", item);
                     if let Some(focused_since) = item.focused_since {
                         if let Some(ref app_id) = item.app_id {
                             let duration = Instant::now().duration_since(focused_since);
@@ -231,7 +230,7 @@ impl Dispatch<ExtIdleNotificationV1, ()> for AppState {
                     .values_mut()
                     .filter(|toplevel| toplevel.focused_since.is_some())
                 {
-                    info!(
+                    debug!(
                         "idleing, logging active duration for toplevel: {:?}",
                         toplevel.app_id
                     );
@@ -249,7 +248,7 @@ impl Dispatch<ExtIdleNotificationV1, ()> for AppState {
                 }
             }
             Event::Resumed => {
-                info!("resumed");
+                debug!("resumed");
                 for toplevel in state.toplevels.values_mut().filter(|toplevel| {
                     toplevel.state.as_ref().is_some_and(|state| {
                         state.contains(&zwlr_foreign_toplevel_handle_v1::State::Activated)
