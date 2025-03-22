@@ -10,9 +10,12 @@ use std::{
 };
 
 use rusqlite::params;
+use tracing::{error, info, level_filters::LevelFilter, trace, warn};
+use tracing_subscriber::EnvFilter;
 use wayland_client::{
-    Dispatch, event_created_child,
+    event_created_child,
     protocol::{wl_registry, wl_seat::WlSeat},
+    Dispatch,
 };
 use wayland_protocols::ext::idle_notify::v1::client::{
     ext_idle_notification_v1::ExtIdleNotificationV1, ext_idle_notifier_v1::ExtIdleNotifierV1,
@@ -25,6 +28,7 @@ use wayland_protocols_wlr::foreign_toplevel::v1::client::{
 #[derive(Debug)]
 struct AppState {
     idle_notifier: Option<ExtIdleNotifierV1>,
+    toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
     seats: Vec<WlSeat>,
     toplevels: HashMap<ZwlrForeignToplevelHandleV1, ToplevelInfo>,
     db_connection: rusqlite::Connection,
@@ -49,6 +53,7 @@ impl AppState {
 
         Ok(Self {
             idle_notifier: None,
+            toplevel_manager: None,
             seats: vec![],
             toplevels: HashMap::new(),
             db_connection: database_connection,
@@ -75,7 +80,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
         _conn: &wayland_client::Connection,
         qhandle: &wayland_client::QueueHandle<Self>,
     ) {
-        println!("event: {:?}", event);
+        trace!("event: {:?}", event);
         if let wl_registry::Event::Global {
             name,
             interface,
@@ -89,11 +94,16 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
                 }
                 "wl_seat" => {
                     let seat = proxy.bind::<WlSeat, _, _>(name, version, qhandle, ());
-                    println!("seat: {:?}", seat);
                     state.seats.push(seat);
                 }
                 "zwlr_foreign_toplevel_manager_v1" => {
-                    proxy.bind::<ZwlrForeignToplevelManagerV1, _, _>(name, version, qhandle, ());
+                    state.toplevel_manager =
+                        Some(proxy.bind::<ZwlrForeignToplevelManagerV1, _, _>(
+                            name,
+                            version,
+                            qhandle,
+                            (),
+                        ));
                 }
                 _ => (),
             }
@@ -105,13 +115,11 @@ impl Dispatch<ExtIdleNotifierV1, ()> for AppState {
     fn event(
         _state: &mut Self,
         _proxy: &ExtIdleNotifierV1,
-        event: <ExtIdleNotifierV1 as wayland_client::Proxy>::Event,
+        _event: <ExtIdleNotifierV1 as wayland_client::Proxy>::Event,
         _data: &(),
         _conn: &wayland_client::Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
-        // just ignore
-        println!("idle notifier event: {:?}", event);
     }
 }
 
@@ -119,13 +127,11 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for AppState {
     fn event(
         _state: &mut Self,
         _proxy: &ZwlrForeignToplevelManagerV1,
-        event: <ZwlrForeignToplevelManagerV1 as wayland_client::Proxy>::Event,
+        _event: <ZwlrForeignToplevelManagerV1 as wayland_client::Proxy>::Event,
         _data: &(),
         _conn: &wayland_client::Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
-        // just ignore
-        println!("toplevel manager event: {:?}", event);
     }
 
     event_created_child!(AppState, ZwlrForeignToplevelManagerV1, [
@@ -142,7 +148,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
         _conn: &wayland_client::Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
-        println!("toplevel handle event: {:?}", event);
+        trace!("toplevel handle event: {:?}", event);
         let item = app_state.toplevels.entry(proxy.clone()).or_default();
 
         use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::Event;
@@ -171,7 +177,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
 
                 // became inactive
                 if was_active && !is_active {
-                    println!("became inactive: {:?}", item);
+                    info!("became inactive: {:?}", item);
                     // log time since became active
                     // remove activate time from toplevel info
                     if let Some(focused_since) = item.focused_since {
@@ -188,7 +194,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
                                     duration.as_millis() as u64,
                                 ],
                             ) {
-                                println!("db insert failed: {e}");
+                                warn!("db insert failed: {e}");
                             }
                         }
                     }
@@ -197,7 +203,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
 
                 // became active
                 if is_active && !was_active {
-                    println!("became active: {:?}", item);
+                    info!("became active: {:?}", item);
                     item.focused_since = Some(Instant::now());
                 }
 
@@ -210,7 +216,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
                 });
 
                 if is_active {
-                    println!("active client destroyed: {:?}", item);
+                    info!("active client destroyed: {:?}", item);
                     if let Some(focused_since) = item.focused_since {
                         if let Some(ref app_id) = item.app_id {
                             let duration = Instant::now().duration_since(focused_since);
@@ -225,7 +231,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
                                     duration.as_millis() as u64,
                                 ],
                             ) {
-                                println!("db insert failed: {e}");
+                                warn!("db insert failed: {e}");
                             }
                         }
                     }
@@ -242,13 +248,11 @@ impl Dispatch<WlSeat, ()> for AppState {
     fn event(
         _state: &mut Self,
         _proxy: &WlSeat,
-        event: <WlSeat as wayland_client::Proxy>::Event,
+        _event: <WlSeat as wayland_client::Proxy>::Event,
         _data: &(),
         _conn: &wayland_client::Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
-        // just ignore
-        println!("seat event: {:?}", event);
     }
 }
 
@@ -261,8 +265,7 @@ impl Dispatch<ExtIdleNotificationV1, ()> for AppState {
         _conn: &wayland_client::Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
-        println!("idle notification event: {:?}", event);
-        // println!("toplevels: {:#?}", state.toplevels);
+        trace!("idle notification event: {:?}", event);
         use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notification_v1::Event;
         match event {
             Event::Idled => {
@@ -272,7 +275,7 @@ impl Dispatch<ExtIdleNotificationV1, ()> for AppState {
                     .values_mut()
                     .filter(|toplevel| toplevel.focused_since.is_some())
                 {
-                    println!(
+                    info!(
                         "idleing, logging active duration for toplevel: {:?}",
                         toplevel
                     );
@@ -290,7 +293,7 @@ impl Dispatch<ExtIdleNotificationV1, ()> for AppState {
                                 duration.as_millis() as u64,
                             ],
                         ) {
-                            println!("db insert failed: {e}");
+                            warn!("db insert failed: {e}");
                         }
                     }
                     toplevel.focused_since = None;
@@ -310,9 +313,22 @@ impl Dispatch<ExtIdleNotificationV1, ()> for AppState {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    println!("Hello, world!");
-    let wayland_connection = wayland_client::Connection::connect_to_env()?;
+fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .without_time()
+        .init();
+    let wayland_connection = match wayland_client::Connection::connect_to_env() {
+        Ok(conn) => conn,
+        Err(e) => {
+            error!("Failed to connect to wayland server: {e}");
+            return;
+        }
+    };
 
     let mut queue = {
         let display = wayland_connection.display();
@@ -325,19 +341,33 @@ fn main() -> anyhow::Result<()> {
         queue
     };
 
-    let mut state = AppState::new()?;
+    let mut state = match AppState::new() {
+        Ok(state) => state,
+        Err(e) => {
+            error!("Failed to create AppState: {e}");
+            return;
+        }
+    };
 
-    queue.roundtrip(&mut state)?;
+    if let Err(e) = queue.roundtrip(&mut state) {
+        error!("Roundtrip failed: {e}");
+    }
 
-    state.idle_notifier.clone().unwrap().get_idle_notification(
-        5_000,
-        &state.seats[0],
-        &queue.handle(),
-        (),
-    );
+    if state.toplevel_manager.is_none() {
+        error!("Failed to get toplevel manager, does you compositor implement wlr-foreign-toplevel-management-unstable?");
+        return;
+    }
+
+    if let Some(ref idle_notifier) = state.idle_notifier {
+        idle_notifier.get_idle_notification(30_000, &state.seats[0], &queue.handle(), ());
+    } else {
+        error!("Failed to get idle notifier, does you compositor implement ext-idle-notify?");
+        return;
+    }
 
     loop {
-        queue.blocking_dispatch(&mut state)?;
-        println!("dispatched!");
+        if let Err(e) = queue.blocking_dispatch(&mut state) {
+            error!("Wayland dispatch failed: {e}");
+        }
     }
 }

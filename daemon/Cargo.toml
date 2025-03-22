@@ -1,11 +1,13 @@
 [package]
-name = "wayland-appusage"
+name = "appusage"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.97"
 rusqlite = { version = "0.34.0", features = ["bundled"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
 wayland-client = "0.31.8"
 wayland-protocols = { version = "0.32.6", features = ["client", "staging"] }
 wayland-protocols-wlr = { version = "0.3.6", features = ["client"] }
