@@ -13,13 +13,8 @@ fn main() {
         .without_time()
         .init();
 
-    let wayland_connection = match wayland_client::Connection::connect_to_env() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Failed to connect to wayland server: {e}");
-            return;
-        }
-    };
+    let wayland_connection = wayland_client::Connection::connect_to_env()
+        .expect("Failed to connect to wayland server");
 
     let mut queue = {
         let display = wayland_connection.display();
@@ -32,13 +27,7 @@ fn main() {
         queue
     };
 
-    let mut state = match app::AppState::new() {
-        Ok(state) => state,
-        Err(e) => {
-            error!("Failed to create AppState: {e}");
-            return;
-        }
-    };
+    let mut state = app::AppState::new().expect("Initialization failed");
 
     if let Err(e) = queue.roundtrip(&mut state) {
         error!("Roundtrip failed: {e}");
@@ -57,8 +46,8 @@ fn main() {
     }
 
     loop {
-        if let Err(e) = queue.blocking_dispatch(&mut state) {
-            error!("Wayland dispatch failed: {e}");
-        }
+        queue
+            .blocking_dispatch(&mut state)
+            .expect("Wayland dispatch failed");
     }
 }
